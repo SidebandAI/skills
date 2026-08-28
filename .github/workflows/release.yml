@@ -1,0 +1,31 @@
+name: Release skill zip
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build sideband.zip
+        run: |
+          cd skills
+          zip -r "$GITHUB_WORKSPACE/sideband.zip" sideband
+
+      - name: Publish latest release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if gh release view latest >/dev/null 2>&1; then
+            gh release delete latest --yes --cleanup-tag
+          fi
+          gh release create latest "$GITHUB_WORKSPACE/sideband.zip" \
+            --title "Latest" \
+            --notes "Sideband agent skill. Rebuilt on each push to main." \
+            --latest
