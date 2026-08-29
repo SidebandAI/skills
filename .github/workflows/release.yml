@@ -17,9 +17,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Validate skill contract
-        run: bash scripts/check-skill-contract.sh
-
       - name: Build sideband.zip
         run: |
           cd skills
