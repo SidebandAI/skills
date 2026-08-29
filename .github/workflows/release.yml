@@ -7,6 +7,10 @@ on:
 permissions:
   contents: write
 
+concurrency:
+  group: release-latest
+  cancel-in-progress: false
+
 jobs:
   release:
     runs-on: ubuntu-latest
@@ -22,10 +26,18 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          git tag --force latest "$GITHUB_SHA"
+          git push --force origin refs/tags/latest
+
           if gh release view latest >/dev/null 2>&1; then
-            gh release delete latest --yes --cleanup-tag
+            gh release upload latest "$GITHUB_WORKSPACE/sideband.zip" --clobber
+            gh release edit latest \
+              --title "Latest" \
+              --notes "Sideband agent skill. Rebuilt on each push to main." \
+              --latest
+          else
+            gh release create latest "$GITHUB_WORKSPACE/sideband.zip" \
+              --title "Latest" \
+              --notes "Sideband agent skill. Rebuilt on each push to main." \
+              --latest
           fi
-          gh release create latest "$GITHUB_WORKSPACE/sideband.zip" \
-            --title "Latest" \
-            --notes "Sideband agent skill. Rebuilt on each push to main." \
-            --latest

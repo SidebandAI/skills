@@ -55,8 +55,9 @@ argument on `create_pulse` / `update_pulse`. It is required on create.
   - `attribute` — `field`, `operator`, `value`. Allowed fields: `platform`, `locale`,
     `app_version`, `first_seen_days_ago`. (There is no "days since last seen" /
     dormancy field, and no session counter.)
-  - `event` — `event_name`, `operator`, optional `count`, `window`, `metadata_filters`
-  - `event_set` — `event_names`, `operator`, optional `count`, `window`,
+  - `event` — `event_name`, `operator`, required `window`, optional `count` and
+    `metadata_filters`
+  - `event_set` — `event_names`, `operator`, required `window`, optional `count` and
     `metadata_filters`. Any-of (`occurred`, count summed across the set) or none-of
     (`not_occurred`). Prefer this over one `event` condition per name.
   - `event_sequence` — `event_names`, `ordered`, required time `window`. No metadata
@@ -72,9 +73,11 @@ argument on `create_pulse` / `update_pulse`. It is required on create.
   overall) before targeting on it. Note the
   difference from trigger filters: an `event` condition on the trigger's own name with
   `source eq search` is also satisfied by a matching occurrence earlier in its window.
-- `window` — `{type: "time"|"event_relative", count, unit}` where unit is `second`,
-  `minute`, `day`, `week`, or `month`. **An `event` condition with no `window` defaults to
-  the last 7 days**, silently. If you mean "ever", say so with an explicit long window.
+- `window` — required on `event`, `event_set`, and `event_sequence` conditions. A time
+  window is `{ "type": "time", "count": 7, "unit": "day" }`. An event-relative window
+  is `{ "type": "event_relative", "event_name": "anchor_event", "count": 7,
+  "unit": "day" }`; `event_name` is the required anchor. Units are `second`, `minute`,
+  `day`, `week`, or `month`. Always provide the intended window explicitly.
 
 Two things about how conditions combine, both easy to get wrong:
 
