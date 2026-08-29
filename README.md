@@ -1,6 +1,6 @@
 # Sideband skills
 
-Agent skills for [Sideband](https://sideband.ai). Connecting the MCP server is not enough — install this skill so the agent knows how to draft pulses and keep project context current.
+Agent skills for [Sideband](https://www.sideband.ai). Connecting the MCP server is not enough — install this skill so the agent knows how to draft pulses and keep project context current.
 
 ## Install
 
