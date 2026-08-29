@@ -13,10 +13,14 @@ ask non-leading questions. Draft first, review with the user, publish only on ap
   would distort answers.
 - **A clear finish.** A brief completion message; thank the user.
 
-You can get a starting draft from `generate_pulse` (pass a plain-language `goal`), then
-refine it against these guidelines.
+You can get a starting skeleton from `generate_pulse` (pass a plain-language `goal`), then
+refine it against these guidelines. Use `create_pulse_draft` to validate and preview the
+result without saving it. The tool returns an `authoring_pulse` payload, generated defaults,
+and graph warnings. Apply revisions by calling `create_pulse_draft` again. Targeting may be
+omitted while previewing, but it must be present before passing the returned fields to
+`create_pulse`.
 
-## `create_pulse` / `update_pulse` arguments
+## Pulse arguments
 
 Required for create: `project_id`, `name`, `sentiment_sheet_eyebrow`, `questions`,
 `targeting_rulesets`.
@@ -35,6 +39,19 @@ Required for create: `project_id`, `name`, `sentiment_sheet_eyebrow`, `questions
 - `base_locale`, `fab_config_id`, `fab_title`, `expires_at`, `max_responses` (optional).
 
 Status defaults to `draft`. Publish by calling `update_pulse` with `status: "active"`.
+
+## Updating a saved pulse
+
+`update_pulse` uses patch semantics for scalar fields, but `questions`, `completions`, and
+`targeting_rulesets` are **complete replacements whenever present**. Before changing one of
+these collections, call `get_pulse`, preserve every item that should remain, apply the edit,
+and submit the entire resulting collection. Omit a collection when it is not changing.
+
+Question replacements require every question's stable `id`. For `yes_no` and
+`multiple_choice` questions, every choice must include its existing `id`, `label`, and
+`value`; preserve those identities and assign explicit identities to new items. Sending
+only the edited question removes the others, while omitting required identities makes the
+update invalid.
 
 ## Targeting — who sees the pulse, and when
 

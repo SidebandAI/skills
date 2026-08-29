@@ -86,7 +86,7 @@ export SIDEBAND_MCP_TOKEN="sb_mcp_..."
 
 ```bash
 claude mcp add --transport http sideband "<MCP_SERVER_URL>" \
-  --header "Authorization: Bearer $SIDEBAND_MCP_TOKEN"
+  --header 'Authorization: Bearer ${SIDEBAND_MCP_TOKEN}'
 ```
 
 **`.mcp.json` (shape most HTTP clients accept):**
@@ -109,7 +109,8 @@ Keep the token in an environment variable; don't commit it.
 
 After registering and reloading the agent:
 
-1. The agent should list Sideband tools (`list_projects`, `create_pulse`, …).
+1. The agent should list read-only Sideband tools (`list_projects`, `create_pulse_draft`,
+   `request_sudo`, …). Mutation tools appear after temporary write access is approved.
 2. Call `list_projects` — it should return the project(s) the credentials can access.
 
 ## Troubleshooting

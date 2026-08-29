@@ -31,7 +31,9 @@ The Sideband tools are exposed through a standard MCP server, so **any MCP-capab
    Per-client snippets and troubleshooting: `references/connecting.md`.
 3. Restart / reload the agent so it picks up the new server.
 
-**Done when:** the agent lists Sideband tools (names like `list_projects`, `create_pulse`). If not, see `references/connecting.md` → Troubleshooting.
+**Done when:** the agent lists Sideband tools (names like `list_projects`,
+`create_pulse_draft`, and `request_sudo`). If not, see `references/connecting.md` →
+Troubleshooting.
 
 ## 2. Verify the connection
 
@@ -43,7 +45,24 @@ Confirm the credentials actually resolve to a project before doing anything else
 
 **Done when:** at least one project is listed. An empty list or a 401 means the token is wrong or unscoped — see Troubleshooting.
 
-## 3. Keep project context current
+## 3. Obtain write access when needed
+
+Sideband MCP credentials are read-only by default. Reads and `create_pulse_draft` need no
+approval. Before `update_project_context`, `create_pulse`, `update_pulse`, or any other
+mutation:
+
+1. Call `request_sudo` with a short reason describing the intended change.
+2. Ask the user to open the returned browser approval URL.
+3. Poll the returned Task with `tasks/get` at `pollIntervalMs`, or use `get_sudo_status`
+   with `request_id` at `poll_interval_ms` when Tasks are unavailable.
+4. If approved, refresh `tools/list` and continue. If denied, expired, or revoked, stop;
+   do not retry the mutation.
+
+Request approval only when the write is ready, because the grant is temporary.
+
+**Done when:** mutation access is approved and the client has refreshed its tool list.
+
+## 4. Keep project context current
 
 Sideband produces better pulse drafts and review feedback when it has an accurate description of the app. Maintain that description with `update_project_context`.
 
@@ -51,24 +70,27 @@ Sideband produces better pulse drafts and review feedback when it has an accurat
 - **How:**
   1. Read the codebase and write a concise context document covering: what the app does and who uses it; the events the app sends to Sideband (name, what it means, when it fires); and the main user flows. See `references/context-doc.md` for the recommended outline.
   2. Optionally read the existing context first with `get_project_context` and update rather than restate.
-  3. Call `update_project_context` with `project_id` and the `body` (the document).
+  3. Obtain write access as described above.
+  4. Call `update_project_context` with `project_id` and the `body` (the document).
 
 Each call **replaces** the project's stored context with the body you provide, so re-run it whenever the description drifts.
 
 **Done when:** `get_project_context` returns the body you just wrote.
 
-## 4. Create a pulse
+## 5. Create a pulse
 
 Always treat this as draft-first. Never publish without the user's review.
 
 1. **Confirm the target project** (`project_id`). If unknown, run `list_projects`.
 2. **Avoid duplicates:** call `list_pulses` and check for an existing pulse with the same intent/name before creating a new one.
-3. **Draft well.** Follow `references/authoring-pulses.md`: one clear objective, concise non-leading prompts, balanced answer choices, an escape hatch ("None of these" / "Prefer not to say"), and a short completion message.
+3. **Discover real inputs.** Read `get_project_context`, call `list_observed_events` for valid trigger events and metadata keys, and call `list_fab_configs` if the user wants a FAB.
+4. **Draft well.** Follow `references/authoring-pulses.md`: one clear objective, concise non-leading prompts, balanced answer choices, an escape hatch ("None of these" / "Prefer not to say"), and a short completion message.
    - `generate_pulse` (pass a plain-language `goal`) returns a starter skeleton to edit. It is a deterministic template, not a written-for-you draft, and it creates nothing.
-4. **Decide the targeting.** `create_pulse` **requires** `targeting_rulesets` — who sees the pulse and after which event. There is no way to create a pulse without it, so settle it with the user before the call. See `references/authoring-pulses.md` → Targeting.
-5. **Create it as a draft** with `create_pulse` (it defaults to `draft` status — leave it there).
-6. **Review with the user.** Show the drafted questions and choices. Make edits with `update_pulse`.
-7. **Publish only on explicit approval** — set the pulse to active with `update_pulse` (`status: "active"`) as a separate, deliberate step.
+5. **Preview without saving.** Call `create_pulse_draft`. Targeting may be omitted during early drafting. Show the returned preview, questions, choices, defaults, and warnings to the user. Apply revisions by calling `create_pulse_draft` again; do not persist an unapproved draft.
+6. **Decide the targeting.** `create_pulse` **requires** `targeting_rulesets` — who sees the pulse and after which event. Settle it with the user and preview the complete draft again. See `references/authoring-pulses.md` → Targeting.
+7. **Create the approved draft.** Obtain write access, then pass the returned `authoring_pulse` fields to `create_pulse`. It defaults to `draft` status; leave it there.
+8. **Verify the saved draft** with `get_pulse`. For later content edits, follow the full-replacement rules in `references/authoring-pulses.md` before calling `update_pulse`.
+9. **Publish only on explicit approval** — obtain or renew write access if needed, then set the pulse to active with `update_pulse` (`status: "active"`) as a separate, deliberate step.
 
 **Done when:** `get_pulse` shows the pulse the user approved, in the status they asked for.
 
@@ -79,8 +101,9 @@ The customer-facing tools you'll use, grouped by job. Full list + arguments: `re
 | Job | Tools |
 |---|---|
 | Find your project | `list_projects`, `get_project`, `get_project_status` |
+| Obtain write access | `request_sudo`, `get_sudo_status` (or `tasks/get` when supported) |
 | Keep context current | `get_project_context`, `update_project_context` |
-| Author pulses | `generate_pulse`, `create_pulse`, `get_pulse`, `list_pulses`, `update_pulse` |
+| Author pulses | `generate_pulse`, `create_pulse_draft`, `create_pulse`, `get_pulse`, `list_pulses`, `update_pulse` |
 | Targeting (who/when) | no separate tools — targeting is the `targeting_rulesets` argument on `create_pulse` / `update_pulse` |
 | Look at results | `get_pulse_metrics`, `list_responses`, `list_events`, `list_observed_events` (which events, metadata keys and platforms are actually arriving) |
 | Appearance | `list_fab_configs`, `create_fab_config`, `get_fab_config` |
@@ -91,5 +114,7 @@ Administrative tools (deleting projects, managing API keys, deleting user data) 
 
 - Confirm `project_id` before any write. One wrong id writes to the wrong app.
 - Pulses are draft-first; publishing is always a separate, explicitly-approved step.
+- Obtain temporary write access only when a mutation is ready, and stop if approval fails.
 - Don't create credentials or projects on the user's behalf without asking.
-- If a tool returns an auth/permission error, stop and re-check the connection (step 2) rather than retrying blindly.
+- If a read returns `401`, re-check the connection. If a mutation is unavailable or denied,
+  follow the write-access flow in step 3 rather than retrying blindly.
