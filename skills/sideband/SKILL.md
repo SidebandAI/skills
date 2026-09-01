@@ -83,8 +83,9 @@ Always treat this as draft-first. Never publish without the user's review.
 
 1. **Confirm the target project** (`project_id`). If unknown, run `list_projects`.
 2. **Avoid duplicates:** call `list_pulses` and check for an existing pulse with the same intent/name before creating a new one.
-3. **Discover real inputs.** Read `get_project_context`, call `list_observed_events` for valid trigger events and metadata keys, and call `list_fab_configs` if the user wants a FAB.
+3. **Discover real inputs.** Read `get_project_context`, call `list_observed_events` for valid trigger events and metadata keys, and call `list_fab_configs` if the user wants a FAB — choosing `fab` appearance requires both a `fab_config_id` from that list and a `fab_title`, so check what exists before offering it. `list_observed_events` gives you the metadata *keys* an event carries; when you need the *values* a key actually takes, call `list_events` for that event name and read `metadata` on the results.
 4. **Draft well.** Follow `references/authoring-pulses.md`: one clear objective, concise non-leading prompts, balanced answer choices, an escape hatch ("None of these" / "Prefer not to say"), and a short completion message.
+   - **Ask what they are trying to learn, and save it as `learning_objective`.** It is optional to save but always worth asking: it is what review compares the questions against, and it is the only record of the pulse's intent — nobody can recover it from the questions later.
    - `generate_pulse` (pass a plain-language `goal`) returns a starter skeleton to edit. It is a deterministic template, not a written-for-you draft, and it creates nothing.
 5. **Preview without saving.** Call `create_pulse_draft`. Targeting may be omitted during early drafting. Show the returned preview, questions, choices, defaults, and warnings to the user. Apply revisions by calling `create_pulse_draft` again; do not persist an unapproved draft.
 6. **Decide the targeting.** `create_pulse` **requires** `targeting_rulesets` — who sees the pulse and after which event. Settle it with the user and preview the complete draft again. See `references/authoring-pulses.md` → Targeting.
@@ -101,11 +102,12 @@ The customer-facing tools you'll use, grouped by job. Full list + arguments: `re
 | Job | Tools |
 |---|---|
 | Find your project | `list_projects`, `get_project`, `get_project_status` |
+| Project settings | `update_project` (includes `pulse_cooldown_days` — see `references/authoring-pulses.md` → Delivery limits) |
 | Obtain write access | `request_sudo`, `get_sudo_status` (or `tasks/get` when supported) |
 | Keep context current | `get_project_context`, `update_project_context` |
 | Author pulses | `generate_pulse`, `create_pulse_draft`, `create_pulse`, `get_pulse`, `list_pulses`, `update_pulse` |
 | Targeting (who/when) | no separate tools — targeting is the `targeting_rulesets` argument on `create_pulse` / `update_pulse` |
-| Look at results | `get_pulse_metrics`, `list_responses`, `list_events`, `list_observed_events` (which events, metadata keys and platforms are actually arriving) |
+| Look at results | `get_pulse_metrics`, `list_responses`, `list_observed_events` (which events, metadata keys and platforms are actually arriving), `list_events` (individual events with their metadata values) |
 | Appearance | `list_fab_configs`, `create_fab_config`, `get_fab_config` |
 
 Administrative tools (deleting projects, managing API keys, deleting user data) exist but are out of scope for this skill — use the console for those unless the user explicitly asks.
