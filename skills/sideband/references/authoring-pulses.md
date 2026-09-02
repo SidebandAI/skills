@@ -23,7 +23,9 @@ Status defaults to `draft`. Publish with `update_pulse` (`status: "active"`).
 
 Optional: `base_locale`, `expires_at`, `max_responses`, `redisplay_cooldown_days`.
 `completions`: `[{ "title", "body", "actions": [...] }]` (array; omit the field
-for the default screen).
+for the default thank-you). Each action needs `label` and `action.type`:
+`dismiss` or `app_rating`. `app_rating` opens the store rating prompt. At
+least one action on a custom completion.
 
 ## Questions
 
