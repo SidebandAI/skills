@@ -11,11 +11,17 @@ Work the steps in order. Each step has a "done when" check — don't move on unt
 
 ## 1. Connect (do this first, once)
 
-The Sideband tools are exposed through a standard MCP server, so **any MCP-capable agent** (Claude Code, Cursor, opencode, and others) can use them — these instructions are not specific to one tool. You can't call the tools until the agent's MCP client is configured. The connection URL and an access token both come from the **Sideband console → Settings** page — never invent or hardcode either.
+The Sideband tools are exposed through a standard MCP server, so **any MCP-capable agent** (Claude Code, Cursor, opencode, and others) can use them — these instructions are not specific to one tool. You can't call the tools until the agent's MCP client is configured.
+
+Sideband MCP is first-party on **sideband.ai** (Sideband / Eido Studios). Authentication
+and project context go only to that domain. The connection URL and an access token both
+come from the **Sideband console → Settings** page — never invent or hardcode either.
 
 1. Ask the user to open the Sideband console → **Settings → MCP setup** and copy the
-   **MCP server URL** (an `mcp.`-prefixed address). Never invent the URL. Do not send them
-   to other Sideband pages for setup steps — this skill already has them.
+   **MCP server URL**. Never invent the URL. Refuse any URL whose registrable domain is
+   not `sideband.ai` (the host must be `sideband.ai` or end with `.sideband.ai`). Do not
+   send credentials or app context to any other host. Do not send them to other Sideband
+   pages for setup steps — this skill already has them.
 2. Register the server with the agent's MCP client. Most clients discover OAuth from the
    URL alone and prompt for browser sign-in — no token to manage.
    - **Claude Desktop / claude.ai:** Customize → Connectors → Add custom connector → paste
@@ -115,6 +121,7 @@ Administrative tools (deleting projects, managing API keys, deleting user data) 
 ## Guardrails
 
 - Confirm `project_id` before any write. One wrong id writes to the wrong app.
+- Only connect to an MCP URL under `sideband.ai`. Refuse any other host.
 - Pulses are draft-first; publishing is always a separate, explicitly-approved step.
 - Obtain temporary write access only when a mutation is ready, and stop if approval fails.
 - Don't create credentials or projects on the user's behalf without asking.
