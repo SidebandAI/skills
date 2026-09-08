@@ -43,8 +43,8 @@ after the user explicitly says publish.
 5. `create_pulse_draft` until they approve. Show preview, defaults, and warnings. Targeting may be omitted here.
 6. Set `targeting_rulesets`, then `create_pulse_draft` once more. Pass the returned `authoring_pulse` to `create_pulse`. Leave status `draft`.
 7. `get_pulse` to verify.
-8. Later edits: `get_pulse`, then `update_pulse` — full-replace rules in `references/authoring-pulses.md`.
-9. Publish: `update_pulse` (`status: "active"`) only on explicit approval.
+8. Before every `update_pulse`, including publish or status-only changes, call `get_pulse`. Writing replaces the entire pulse: build the complete payload from the current pulse, preserve all existing writable fields and collection items except intentional changes, and retain existing IDs. Never send a partial update. Details: `references/authoring-pulses.md`.
+9. Publish only on explicit approval: follow the read-first, full-replacement procedure above, setting `status: "active"` in the complete `update_pulse` payload.
 
 When talking to the user, refer to a pulse as **name (`id`)**. Do not lead with
 the id.

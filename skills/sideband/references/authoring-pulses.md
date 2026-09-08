@@ -19,7 +19,8 @@ first question.
 pass the returned fields to `create_pulse`. Targeting may be omitted while
 previewing; it is required on `create_pulse`.
 
-Status defaults to `draft`. Publish with `update_pulse` (`status: "active"`).
+Status defaults to `draft`. To publish, follow the read-first, full-replacement
+procedure under **Update**, setting `status: "active"` in the complete payload.
 
 Optional: `base_locale`, `expires_at`, `max_responses`, `redisplay_cooldown_days`.
 `completions`: `[{ "title", "body", "actions": [...] }]` (array; omit the field
@@ -97,11 +98,13 @@ on the `yes_no` root.
 
 ## Update
 
-Scalars patch. `questions`, `completions`, and `targeting_rulesets` are full
-replacements whenever present. Omit a collection that is not changing.
+Before every `update_pulse`, including publish or status-only changes, call
+`get_pulse`. Writing replaces the entire pulse. Build the complete update payload
+from the current pulse, preserving all existing writable fields and collection
+items except those intentionally changed. Never send a partial update or omit
+an unchanged collection.
 
-Before editing a collection: `get_pulse`, keep every item that should remain,
-submit the whole collection. Every question needs its `id`. Every `yes_no` /
+Retain existing IDs. Every question needs its `id`. Every `yes_no` /
 `multiple_choice` choice needs its existing `id`, `label`, and `value`. New
 questions and choices need explicit ids too. Omitting required identities
 makes the update invalid. Sending only the edited question deletes the others.
@@ -179,7 +182,8 @@ No "any of these attributes" primitive — separate rulesets.
   reset it (`tagUser`). `get_project`; `null` means disabled.
 - **Per-pulse redisplay** (`redisplay_cooldown_days`): how often that pulse can
   show again. On create, omit = shown at most once, ever; omit `max_responses` =
-  no cap. On `update_pulse`, omit leaves the existing value; send `null` to clear.
+  no cap. On `update_pulse`, preserve the current value in the complete payload;
+  send `null` only when intentionally clearing it.
 
 Test on a different account. Or use a separate project real users never see, and
 disable cooldown there.
