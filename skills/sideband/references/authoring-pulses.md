@@ -4,7 +4,7 @@ Draft first. Review with the user. Publish only on explicit approval.
 
 ## Create
 
-Required: `project_id`, `name` (console identifier, not user-facing copy),
+Required to publish: `project_id`, `name` (console identifier, not user-facing copy),
 `sentiment_sheet_eyebrow` (user-visible copy above the sentiment question),
 `questions`, `targeting_rulesets`.
 
@@ -13,14 +13,17 @@ to judge whether the questions answer the goal. Optional to save; if they
 decline, omit it. If saving, use the user's goal, not a restatement of the
 first question.
 
-`generate_pulse` (`goal`) returns a template. It creates nothing.
-`create_pulse_draft` validates and previews. It saves nothing. It returns
-`authoring_pulse`, generated defaults, and graph warnings — show those, then
-pass the returned fields to `create_pulse`. Targeting may be omitted while
-previewing; it is required on `create_pulse`.
+`generate_pulse` (`goal`) returns a template. It saves nothing.
+`create_pulse_draft` saves a draft and needs write access. Only `project_id` is
+required; it returns `id`, `version`, generated defaults and graph warnings, or
+`validation_errors` for content that cannot be built yet. Show those. The draft
+delivers nothing until `publish_pulse`. Targeting may be omitted in a draft; it
+is required to publish.
 
-Status defaults to `draft`. To publish, follow the read-first, full-replacement
-procedure under **Update**, setting `status: "active"` in the complete payload.
+`publish_pulse` takes the exact saved `expected_version` and an `intent`:
+`activate` (now; no start time), `schedule` (future `starts_at`), `inactive`
+(published, not delivering; no start or end time), `preserve` (keep the current
+delivery state) or `pause`. Call it only after the user explicitly says publish.
 
 Optional: `base_locale`, `expires_at`, `max_responses`, `redisplay_cooldown_days`.
 `completions`: `[{ "title", "body", "actions": [...] }]` (array; omit the field
@@ -64,8 +67,8 @@ Follow-ups go on the unhappy path (`thumbs_down` / `no`) — short
 `multiple_choice` plus optional `system_other`. Each path the respondent sees
 is 1–3 questions. Extra nodes are fine on other branches.
 
-A single unbranched multiple-choice is an opinion poll. Do not `create_pulse`
-that shape.
+A single unbranched multiple-choice is an opinion poll. Do not publish that
+shape.
 
 Each question: `type` (`yes_no` | `multiple_choice` | `free_text`), `prompt`,
 optional `choices` (`{ "id", "label", "value" }`), `required`,
@@ -92,27 +95,35 @@ Set `shuffle_choices: false` only when authored order matters (a scale).
 `list_fab_configs` first. If one exists, FAB is a valid entry (ask sheet vs FAB).
 
 `fab` requires both `fab_config_id` and `fab_title` (user-visible FAB label,
-short, max 120). Omitting either fails `create_pulse`. Do not invent an id.
+short, max 120). Omitting either fails publication. Do not invent an id.
 `create_fab_config` needs a `logoKey` — no logo, no FAB. After tap, still start
 on the `yes_no` root.
 
 ## Update
 
-Before every `update_pulse`, including publish or status-only changes, call
-`get_pulse`. Writing replaces the entire pulse. Build the complete update payload
-from the current pulse, preserving all existing writable fields and collection
-items except those intentionally changed. Never send a partial update or omit
-an unchanged collection.
+`update_pulse` changes the saved draft, never the delivered pulse. Pass
+`expected_version` from the latest `get_pulse` or write result; a stale version
+returns `conflict`. Omitted fields stay as they are. `questions`, `completions`
+and `translations` each replace the whole array: send every item, not only the
+edited one.
 
 Retain existing IDs. Every question needs its `id`. Every `yes_no` /
 `multiple_choice` choice needs its existing `id`, `label`, and `value`. New
 questions and choices need explicit ids too. Omitting required identities
 makes the update invalid. Sending only the edited question deletes the others.
 
+Publishing changed content of a published pulse creates a replacement pulse id
+and archives the old one. Follow the returned id. A superseded id returns
+`conflict` with `replacement_pulse_id`.
+
+A status change is `publish_pulse` with that `intent` (`pause`, `activate`). It
+also publishes any saved edits: check `has_unpublished_changes` in `get_pulse`
+first, and `reset_pulse_draft` to discard edits the user does not want live.
+
 ## Targeting
 
-Required on create. Argument on `create_pulse` / `update_pulse`, not a separate
-resource. Array of rulesets; at least one. Eligible if **any** ruleset matches.
+Required to publish. Argument on `create_pulse_draft` / `update_pulse`, not a
+separate resource. Array of rulesets; at least one. Eligible if **any** ruleset matches.
 
 A ruleset:
 
@@ -182,8 +193,8 @@ No "any of these attributes" primitive — separate rulesets.
   reset it (`tagUser`). `get_project`; `null` means disabled.
 - **Per-pulse redisplay** (`redisplay_cooldown_days`): how often that pulse can
   show again. On create, omit = shown at most once, ever; omit `max_responses` =
-  no cap. On `update_pulse`, preserve the current value in the complete payload;
-  send `null` only when intentionally clearing it.
+  no cap. On `update_pulse`, omit it to keep the current value; send `null`
+  only when intentionally clearing it.
 
 Test on a different account. Or use a separate project real users never see, and
 disable cooldown there.
