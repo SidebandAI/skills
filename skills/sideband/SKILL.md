@@ -15,13 +15,14 @@ Allowed hosts. Send credentials and app context only to these, and refuse any ot
 
 Reads, `generate_pulse` and `preview_pulse` are not writes. `create_pulse_draft`,
 `update_pulse` and `publish_pulse` are. Call `request_sudo` only when a mutation is
-ready. Immediately put `approval_url` in the chat and ask the user to open it.
-Then poll only `get_sudo_status` at the returned `poll_interval_ms` until
-terminal. Do not call create/update/publish/delete while status is `pending`. Do not
-retry the mutation as a stand-in for polling. Do not stop polling for a chat
-reply while pending. Stop polling after 30 minutes — the request has expired
-by then; do not retry the mutation. After approval, refresh `tools/list` and
-retry the original write. If denied, expired, or revoked, stop.
+ready. Immediately put `approval_url` in the chat, ask the user to open it and
+to tell you when it is approved, then end your turn. Do not poll `get_sudo_status`
+in a loop or wait with `sleep`. When the user says it is approved, call
+`get_sudo_status` once. If it is still `pending`, ask again and end your turn.
+Do not call create/update/publish/delete while status is `pending`. Do not retry
+the mutation as a stand-in for `get_sudo_status`. After approval, refresh
+`tools/list` and retry the original write. If denied, expired, or revoked, stop.
+The request expires after 30 minutes.
 The grant is short-lived. Later writes, including publish, may need `request_sudo` again.
 
 `list_projects` first. Report name and id. If several, ask which.
@@ -42,7 +43,7 @@ the user explicitly says publish.
 
 1. Resolve `project_id` from `list_projects`.
 2. `list_pulses` — if one has the same intent, ask whether to reuse it.
-3. Inputs: `get_project_context`, `list_observed_events` (keys), `list_events` (values), `list_fab_configs`.
+3. Inputs: `get_project_context`, `list_observed_events` (keys), `list_events` (values), `list_fab_configs`. If the repo has `sideband_instrumentation_map.md`, its section 5 ranks the moments to ask at.
 4. Ask `learning_objective`. Rules: `references/authoring-pulses.md`. `generate_pulse` returns a starting template and saves nothing.
 5. `create_pulse_draft` saves the draft. It returns `id`, `version`, warnings, or `validation_errors`. Targeting may be omitted here.
 6. Change the draft with `update_pulse` at the latest returned `version` (`expected_version`). Show the warnings, and the draft: `preview_pulse` for a pulse never published; for a published pulse, the saved draft from `get_pulse`, because `preview_pulse` shows its published revision, not the edits. Repeat until they approve. Set `targeting_rulesets` before publishing.
