@@ -4,7 +4,7 @@ Draft first. Review with the user. Publish only on explicit approval.
 
 ## Create
 
-Required to publish: `project_id`, `name` (console identifier, not user-facing copy),
+Required to publish: `channel_id`, `name` (console identifier, not user-facing copy),
 `sentiment_sheet_eyebrow` (user-visible copy above the sentiment question),
 `questions`, `targeting_rulesets`.
 
@@ -13,12 +13,34 @@ to judge whether the questions answer the goal. Optional to save; if they
 decline, omit it. If saving, use the user's goal, not a restatement of the
 first question.
 
-`generate_pulse` (`goal`) returns a template. It saves nothing.
-`create_pulse_draft` saves a draft and needs write access. Only `project_id` is
+`create_pulse_draft` saves a draft and needs write access. Only `channel_id` is
 required; it returns `id`, `version`, generated defaults and graph warnings, or
 `validation_errors` for content that cannot be built yet. Show those. The draft
 delivers nothing until `publish_pulse`. Targeting may be omitted in a draft; it
 is required to publish.
+
+Its `readiness`, which `update_pulse` also returns for the draft it saves,
+checks only the events the draft names (trigger events,
+condition `event_name` / `event_names`, the anchor of an `event_relative`
+window) and the metadata keys it filters them on, against the stored context:
+a row exists, its firing moment is not `unknown`, it declares every platform a
+ruleset that restricts platforms can target it on (a ruleset where all three
+platforms are possible adds no platform check), and it lists the filtered
+keys. The draft is saved whatever it says. Status `unavailable` means the
+check could not run (the database was unavailable): it reports no gaps, and the next
+`update_pulse` on the draft checks it again. For each gap, the app's
+coding agent inspects the app's code for that event. If the row is wrong, it
+updates that row (keeping unrelated content and recorded uncertainty) and
+stores the whole document with `update_channel_context` and the given
+`context_version`. If the row is right, the draft is wrong (for example it
+targets a platform where the event does not fire, or filters on a key it does
+not carry): no context write; fix the draft. Either way, the draft continues
+with `update_pulse`. `format_migration_required` gives a `migration`
+instruction instead. Catalog evidence is not proof of the code, and `ready`
+does not judge the facts in `not_judged` (feature meaning, audience intent,
+delivery surface, identity). Change the context only for the gaps it names.
+Do not estimate reach from catalog counts: they show that events arrive, not
+how many people a pulse will reach.
 
 `publish_pulse` takes the exact saved `expected_version` and an `intent`:
 `activate` (now; no start time), `schedule` (future `starts_at`), `inactive`
@@ -27,7 +49,8 @@ delivery state) or `pause`. Call it only after the user explicitly says publish.
 
 Optional: `base_locale`, `expires_at`, `max_responses`, `redisplay_cooldown_days`.
 `completions`: `[{ "title", "body", "actions": [...] }]` (array; omit the field
-for the default thank-you). Each action needs `label` and `action.type`:
+for the default thank-you; `[]` for no thank-you screen, only when the user asks
+for none). Each action needs `label` and `action.type`:
 `dismiss` or `app_rating`. `app_rating` opens the store rating prompt. At
 least one action on a custom completion.
 
@@ -42,9 +65,14 @@ The first thing the respondent sees is **one of**:
    sits above it.
 2. **FAB** — `appearance: fab` plus `fab_config_id` and `fab_title`. After tap,
    the survey still starts on that `yes_no` root.
+3. **Snackbar** — `appearance: snackbar` plus `fab_config_id` (the same images
+   as a FAB). The server sets `entry_settings.kind: snackbar`; `entry_settings`
+   can also set `position`, `anchor` and `offset`. The survey starts on that
+   `yes_no` root. An app on an SDK older than 1.4.0 never shows a snackbar
+   pulse; Sideband does not send it there.
 
 Never a `multiple_choice` or `free_text` root. If a FAB config exists, ask
-sheet vs FAB; both are valid.
+sheet vs FAB vs snackbar; all are valid.
 
 ### Copy
 
@@ -62,6 +90,22 @@ Balanced choices.
 The root `yes_no` is a **sentiment** split: yes = happy, no = not happy.
 Branch from that. Question order is not the route. Set `branching.rules` and
 `default_next_node_id`.
+
+If the pulse has a thank-you screen, every path ends on it. Route the last
+question on each path, for every answer, to the completion's `node_id` (the
+default one is `draft_completion` unless a question already uses that id; the
+`create_pulse_draft` result shows it). An answer with no route closes the sheet
+without a thank-you screen. A rule for one answer does not route the others:
+set `default_next_node_id` too. An optional question can be submitted with no
+answer, which follows `default_next_node_id`. `create_pulse_draft` connects a
+question that has no route at all to the completion. The
+`paths_without_completion` warning from `create_pulse_draft`, `update_pulse` and
+`preview_pulse` names each answer that has no route. Fix them before publish.
+
+Leave the thank-you screen out only when the user asks: `completions: []`. The
+sheet then closes after the last answer. To remove it from a draft, send
+`completions: []` and the questions without routes to it in the same
+`update_pulse` call; a route to a removed screen makes preview and publish fail.
 
 Follow-ups go on the unhappy path (`thumbs_down` / `no`) — short
 `multiple_choice` plus optional `system_other`. Each path the respondent sees
@@ -92,7 +136,8 @@ Set `shuffle_choices: false` only when authored order matters (a scale).
 
 ## FAB
 
-`list_fab_configs` first. If one exists, FAB is a valid entry (ask sheet vs FAB).
+`list_fab_configs` first. If one exists, FAB and snackbar are valid entries
+(ask sheet vs FAB vs snackbar).
 
 `fab` requires both `fab_config_id` and `fab_title` (user-visible FAB label,
 short, max 120). Omitting either fails publication. Do not invent an id.
@@ -117,22 +162,26 @@ and archives the old one. Follow the returned id. A superseded id returns
 `conflict` with `replacement_pulse_id`.
 
 A status change is `publish_pulse` with that `intent` (`pause`, `activate`). It
-also publishes any saved edits: check `has_unpublished_changes` in `get_pulse`
-first, and `reset_pulse_draft` to discard edits the user does not want live.
+also publishes any saved edits: check `draft.has_unpublished_changes` in
+`get_pulse` (top level in `list_pulses`) first, and `reset_pulse_draft` to discard edits the user does not want live.
 
 ## Targeting
 
 Required to publish. Argument on `create_pulse_draft` / `update_pulse`, not a
 separate resource. Array of rulesets; at least one. Eligible if **any** ruleset matches.
 
+A pulse can target only platform, language, app version, days since first
+seen, and the events a user sent.
+
 A ruleset:
 
 - `trigger_events` — at least one **user-initiated** event. A direct user
   action (opened create, saved, tapped). Not `system_*`, and not app lifecycle
-  or other events with no direct user action. Check names with
+  or other events with no direct user action, and not an event whose context
+  row's `notes` start with `history only: not a pulse trigger`. Check names with
   `list_observed_events` first (`system_*` are in `meta.system_names` unless
   `include_system: true` — do not use them as triggers). A trigger the app
-  never sends never fires (no error). Counts are exact as of that call.
+  never sends never fires (no error). Counts are exact through `meta.coverage_to`.
 - `trigger_metadata_filters` — optional `{key, operator, value}` on the
   **activating event** (all AND-ed). Not history.
 - `conditions` — optional, evaluated in order. Each needs `kind`:
@@ -168,9 +217,15 @@ keys only: `source`, `item_type`, `mode`, `variant` (lowercase strings,
 `neq` included.
 
 Before any metadata filter: `list_observed_events` (`metadata_keys`, per
-platform and overall) — the key must arrive. Then `list_events` (`event_name`)
-for **values**. A missing key or a value the app never sends matches nothing,
-with no warning.
+platform and overall) — the key must arrive. Then the **values**: the same tool
+with `event_names` (at most 10) and `include_values: true` gives each string
+key's values with counts from a bounded recent sample (`meta.values` states it;
+counts are events, not people; a rare or old value can be missing from it;
+`meta.values.status` `deferred` means not read, not no values;
+`metadata_values_not_sampled` names observed keys with no values read), or
+`list_events` (`event_name`) for single events and those keys. `list_events`
+`since` / `until` compare the device timestamp, not the arrival time. A missing key or a value the app never sends
+matches nothing, with no warning.
 
 An `event` condition on the trigger's own name with e.g. `source eq search` is
 also satisfied by a matching occurrence earlier in its window.
@@ -187,21 +242,23 @@ No "any of these attributes" primitive — separate rulesets.
 
 ## Delivery
 
-- **Project cooldown** (`pulse_cooldown_days`): after any pulse is shown to a
-  person, no pulse in that project is shown again until that cooldown elapses.
-  Keyed to the person, not the device — reinstall and switching devices do not
-  reset it (`tagUser`). `get_project`; `null` means disabled.
+- **Channel cooldown** (`pulse_cooldown_days`): after any pulse is shown to a
+  person, no pulse in that channel is shown again until that cooldown elapses.
+  Keyed to the person the app identifies to Sideband as the signed-in user, not
+  the device — reinstall and switching devices do not reset it for that user.
+  `get_channel`; `null` means disabled.
 - **Per-pulse redisplay** (`redisplay_cooldown_days`): how often that pulse can
   show again. On create, omit = shown at most once, ever; omit `max_responses` =
   no cap. On `update_pulse`, omit it to keep the current value; send `null`
   only when intentionally clearing it.
 
-Test on a different account. Or use a separate project real users never see, and
-disable cooldown there.
+Test in the Development channel, with a build that uses its key. A different
+account in the Production channel does not keep the test out of it. Turn off
+cooldown only in the Development channel.
 
-`update_project` is a mutation. Before changing `pulse_cooldown_days`: read and
-report the current value, confirm the project is not serving real users, say how
-to put it back. Never leave cooldown disabled on a live project.
+`update_channel` is a mutation. Before changing `pulse_cooldown_days`: read and
+report the current value, make sure the channel is not serving real users, say
+how to put it back. Never leave cooldown disabled on a channel serving real users.
 
 ## Results
 
@@ -209,4 +266,7 @@ to put it back. Never leave cooldown disabled on a live project.
 - `list_responses` — filter by sentiment, completion, time
 - `list_events` / `list_observed_events` — names, exact counts, per-platform
   breakdown, metadata keys, first/last seen. `system_*` names are in
-  `meta.system_names` unless `include_system: true`
+  `meta.system_names` unless `include_system: true`. `event_names` reads
+  exact names outside the count-ranked shortlist; `include_values: true` with
+  them adds targetable string-key values from a bounded sample. Counts are events, not
+  people or a pulse's audience

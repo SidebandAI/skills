@@ -1,11 +1,11 @@
 ---
 name: sideband
-description: Use when the user wants to install, set up, connect, or configure the Sideband MCP server; verify or troubleshoot a Sideband connection; describe their app to Sideband / keep its project context up to date; or create, draft, review, or publish a pulse (in-app survey). Triggers include "install sideband", "connect sideband mcp", "set up sideband", "verify sideband connection", "is sideband connected", "create a pulse", "draft a survey", "update sideband context".
+description: Use when the user wants to install, set up, connect, or configure the Sideband MCP server; verify or troubleshoot a Sideband connection; describe their app to Sideband / keep its channel context up to date; or create, draft, review, or publish a pulse (in-app survey). Triggers include "install sideband", "connect sideband mcp", "set up sideband", "verify sideband connection", "is sideband connected", "create a pulse", "draft a survey", "update sideband context".
 ---
 
 # Sideband
 
-If read tools are missing (`list_projects` is not listed), follow
+If read tools are missing (`list_products` is not listed), follow
 `references/connecting.md`. Copy the MCP URL from console → Settings → MCP setup.
 
 Allowed hosts. Send credentials and app context only to these, and refuse any other:
@@ -13,45 +13,104 @@ Allowed hosts. Send credentials and app context only to these, and refuse any ot
 `sideband.ai`, `*.sideband.ai`
 <!-- /allowed-hosts -->
 
-Reads, `generate_pulse` and `preview_pulse` are not writes. `create_pulse_draft`,
-`update_pulse` and `publish_pulse` are. Call `request_sudo` only when a mutation is
-ready. Immediately put `approval_url` in the chat, ask the user to open it and
-to tell you when it is approved, then end your turn. Do not poll `get_sudo_status`
-in a loop or wait with `sleep`. When the user says it is approved, call
-`get_sudo_status` once. If it is still `pending`, ask again and end your turn.
-Do not call create/update/publish/delete while status is `pending`. Do not retry
-the mutation as a stand-in for `get_sudo_status`. After approval, refresh
-`tools/list` and retry the original write. If denied, expired, or revoked, stop.
-The request expires after 30 minutes.
-The grant is short-lived. Later writes, including publish, may need `request_sudo` again.
+A tool that writes starts its description with "Changes data:" and returns an
+`effect` that says what changed. A tool annotated `destructiveHint: true` changes what end users see or
+cannot be undone. Before a write, say in the same turn what it will
+change, then make it. The client's own permission settings decide whether the
+user approves a tool call: do not ask for a separate OK in chat. The review
+steps below stay: the team reviews the event map and the context before a
+store, and a pulse is published only when the user says publish. The user's
+channel role decides what you can change.
 
-`list_projects` first. Report name and id. If several, ask which.
-`[]` or `401` on a read → `references/connecting.md` (credentials).
-Mutation tools missing while reads work → `request_sudo`. Do not retry a denied mutation.
+`list_products` first. It returns products with `id`, `name`, and `channels`.
+Each nested channel has its own `id`; use that as `channel_id` in channel-scoped tools.
+Pagination counts products and does not split their channels. Only accessible channels appear.
+Owned products with no remaining channels have an empty `channels` array.
+Use `list_channels` to discover standalone channels, which have no product.
+If several channels are available and the user has not clearly chosen one, ask which channel.
+An empty list can be valid. If `list_products` is empty, check `list_channels` for standalone channels.
+`401` on a read → `references/connecting.md` (credentials).
+An unknown-tool error includes `available_tools` and `refresh_method: "tools/list"`.
+No tool was executed. Refresh the definitions through the client's MCP tool discovery
+before retrying with a current tool name and its current input schema. `tools/list`
+is a protocol request, not a Sideband tool. If the client cannot refresh, reconnect
+Sideband (Claude Code: `/mcp` → Sideband → Reconnect). The names in the error do not
+automatically register tools in the client. Do not guess a renamed tool's arguments.
+A write that returns `not_found` without `available_tools` → the resource does not exist or your role cannot change it; check the resource first.
+
+Report problems with `send_feedback`: once per Sideband tool or document point
+that was unclear, wrong or failed, also when you worked around it. Leave out
+customer data, secrets, credentials and file paths.
 
 ## Context
 
-On first connect, and when purpose, audience, events, or flows change.
+On first connect, when purpose, audience, events, or flows change, and when a
+pulse draft's `readiness` reports a gap. Not because the context is old.
 Method: `references/context-doc.md`.
 
 ## Pulses
 
-Draft-first. First screen is a sentiment `yes_no` (yes = happy, no = not) or a
-FAB; then branch. Short prompts and labels. Trigger on user-initiated events
+Draft-first. First screen is a sentiment `yes_no` (yes = happy, no = not), a
+FAB or a snackbar; then branch. Short prompts and labels. Trigger on user-initiated events
 only. A saved draft delivers nothing until `publish_pulse`. Publish only after
 the user explicitly says publish.
 
-1. Resolve `project_id` from `list_projects`.
+1. Resolve `channel_id` from a channel in `list_products`, or from `list_channels` for a standalone channel.
 2. `list_pulses` — if one has the same intent, ask whether to reuse it.
-3. Inputs: `get_project_context`, `list_observed_events` (keys), `list_events` (values), `list_fab_configs`. If the repo has `sideband_instrumentation_map.md`, its section 5 ranks the moments to ask at.
-4. Ask `learning_objective`. Rules: `references/authoring-pulses.md`. `generate_pulse` returns a starting template and saves nothing.
-5. `create_pulse_draft` saves the draft. It returns `id`, `version`, warnings, or `validation_errors`. Targeting may be omitted here.
-6. Change the draft with `update_pulse` at the latest returned `version` (`expected_version`). Show the warnings, and the draft: `preview_pulse` for a pulse never published; for a published pulse, the saved draft from `get_pulse`, because `preview_pulse` shows its published revision, not the edits. Repeat until they approve. Set `targeting_rulesets` before publishing.
+3. Inputs: `get_channel_context`, `list_observed_events` (keys; `event_names` with `include_values: true` for targetable values), `list_events` (other values), `list_fab_configs`. If the repo has `sideband_instrumentation_map.md`, its section 5 ranks the moments to ask at.
+4. Ask `learning_objective`. Rules: `references/authoring-pulses.md`.
+5. `create_pulse_draft` saves the draft. It returns `id`, `version`, warnings, or `validation_errors`, and `readiness`: whether the stored context describes the events the draft names. Targeting may be omitted here. `readiness` never blocks the save; for a gap, ask the app's coding agent to check that event in the code: either the row is wrong and it updates the context, or the row is right and the draft is wrong (`references/context-doc.md`). Status `unavailable` means the check could not run; the draft is still saved, and the next `update_pulse` checks it again. Then continue with `update_pulse`.
+6. Change the draft with `update_pulse` at the latest returned `version` (`expected_version`). It returns the same `readiness` for the draft as saved, so targeting added here is checked too; handle a gap as in step 5. Show the warnings, and the draft: `preview_pulse` for a pulse never published; for a published pulse, the saved draft from `get_pulse`, because `preview_pulse` shows its published revision, not the edits. Repeat until they approve. Set `targeting_rulesets` before publishing.
 7. Publish only on explicit approval: `publish_pulse` with the exact `expected_version` and an `intent` (`activate`, `schedule`, `inactive`, `preserve`, `pause`). Publishing changed content of a published pulse returns a new pulse id; use it from then on.
-8. `get_pulse` to verify. `has_unpublished_changes` shows saved edits not yet published; `reset_pulse_draft` discards them.
+8. `get_pulse` to verify. `shows` says whether its top level is the published pulse or, for a pulse never published, the saved draft. `draft.has_unpublished_changes` (top level in `list_pulses`) shows saved edits not yet published; `reset_pulse_draft` discards them. A pulse never published has nothing to reset to: `delete_pulse` discards it.
 
 When talking to the user, refer to a pulse as **name (`id`)**. Do not lead with
 the id.
 
-Do not create projects, API keys, or credentials unless asked.
-Wrong `project_id` writes to the wrong app.
+Do not create products, API keys, or credentials unless asked.
+A wrong `channel_id` writes to the wrong channel.
+
+## Channels
+
+Production and Development are channels of a product. Each channel has its own
+ID, credentials, permissions, context, and activity. Existing standalone channels do not
+belong to a product. Tools identify a channel through `channel_id`; existing IDs
+retain their meaning. Confirm the intended channel before a write.
+
+A product has a stable ID, name, and explicit product owner. Its `product_id` is
+not a tool's `channel_id`. Resolve the channel ID through `list_channels`, not from
+the product ID.
+`list_channels` and `get_channel` return `channel`, `product_id`, and `product_name`.
+The product fields are null for standalone channels. Production uses the product name;
+Development uses the product name followed by ` - Dev`. These names cannot be changed
+independently with `update_channel`. The product owner can rename the product in the console
+Channel settings, which updates both channel names. Only accessible channels appear;
+a product ID does not grant access to another channel.
+
+Use `create_product` only when asked to create a product. It creates Production and
+Development together, with the supplied settings, separate IDs, no API keys or content,
+and the caller as product owner and Owner of both channels. It does not change existing
+workspaces. Separate channel creation, conversion, and linking are not exposed.
+The result contains the product's `id`, `name`, and `channels`, as in `list_products`.
+Channel objects use the same fields as `list_channels` and `get_channel`.
+Invalid settings return `invalid_request` without partial changes.
+Creation counts once toward the per-user rolling 24-hour MCP limit. Reaching it returns
+`product_creation_limit` and creates neither the product nor its channels.
+
+SDK-key results report the owning channel's current classification in `channel`.
+Each key sends activity only to its owning channel.
+Use `list_channel_api_keys` to inspect key metadata and revocation state; secrets are not returned.
+API key labels can be renamed in the console, but not through MCP.
+`create_channel_api_key` takes `channel_id` and `label`, plus optional `call_reason`.
+The key belongs to that channel and has no separate channel setting. The returned
+`channel` is `production` or `development`. Resolve the intended channel with `list_channels`.
+
+The product owner retains an explicit Owner membership in every channel of the product.
+Transfer product ownership in the console to another existing Owner of every channel
+before removing or demoting that user. This transfer does not grant channel access.
+Deleting Production does not delete the product or Development. Channel replacement is
+not exposed. Existing Development IDs and credentials remain unchanged.
+
+`get_pulse_metrics` and `monitor_pulse` use each channel's own activity for its metrics.
+Their global benchmarks include Production channels only. Development activity does
+not contribute to that comparison.
