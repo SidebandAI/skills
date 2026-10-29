@@ -102,7 +102,8 @@ Keep the token in an environment variable; don't commit it.
 ## Verify
 
 Call `list_products` to verify authentication and discover products with accessible channels.
-An empty product list can be valid: use `list_channels` to check for standalone channels.
+An empty product list can be valid: check `standalone_channels` when present in the same result.
+Follow `next_cursor` for more products or standalone channels.
 
 ## Troubleshooting
 

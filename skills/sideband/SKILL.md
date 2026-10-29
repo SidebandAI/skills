@@ -22,13 +22,17 @@ steps below stay: the team reviews the event map and the context before a
 store, and a pulse is published only when the user says publish. The user's
 channel role decides what you can change.
 
-`list_products` first. It returns products with `id`, `name`, and `channels`.
+`list_products` first. Its `data` array contains products with `id`, `name`, and `channels`.
 Each nested channel has its own `id`; use that as `channel_id` in channel-scoped tools.
-Pagination counts products and does not split their channels. Only accessible channels appear.
+Its `standalone_channels` array contains accessible channels with no product.
+The field is omitted when the page has no standalone channels.
+Pagination counts each product or standalone channel as one item, with products first,
+and does not split a product's channels. Follow `next_cursor` across both arrays.
+Only accessible channels appear.
 Owned products with no remaining channels have an empty `channels` array.
-Use `list_channels` to discover standalone channels, which have no product.
+Use each standalone channel's `id` as `channel_id`. `list_channels` also returns a flat channel list.
 If several channels are available and the user has not clearly chosen one, ask which channel.
-An empty list can be valid. If `list_products` is empty, check `list_channels` for standalone channels.
+An empty `data` array does not mean there are no channels: check `standalone_channels` too.
 `401` on a read → `references/connecting.md` (credentials).
 An unknown-tool error includes `available_tools` and `refresh_method: "tools/list"`.
 No tool was executed. Refresh the definitions through the client's MCP tool discovery
@@ -55,14 +59,14 @@ FAB or a snackbar; then branch. Short prompts and labels. Trigger on user-initia
 only. A saved draft delivers nothing until `publish_pulse`. Publish only after
 the user explicitly says publish.
 
-1. Resolve `channel_id` from a channel in `list_products`, or from `list_channels` for a standalone channel.
+1. Resolve `channel_id` from a nested or standalone channel in `list_products`, or from `list_channels`.
 2. `list_pulses` — if one has the same intent, ask whether to reuse it.
 3. Inputs: `get_channel_context`, `list_observed_events` (keys; `event_names` with `include_values: true` for targetable values), `list_events` (other values), `list_fab_configs`. If the repo has `sideband_instrumentation_map.md`, its section 5 ranks the moments to ask at.
 4. Ask `learning_objective`. Rules: `references/authoring-pulses.md`.
 5. `create_pulse_draft` saves the draft. It returns `id`, `version`, warnings, or `validation_errors`, and `readiness`: whether the stored context describes the events the draft names. Targeting may be omitted here. `readiness` never blocks the save; for a gap, ask the app's coding agent to check that event in the code: either the row is wrong and it updates the context, or the row is right and the draft is wrong (`references/context-doc.md`). Status `unavailable` means the check could not run; the draft is still saved, and the next `update_pulse` checks it again. Then continue with `update_pulse`.
 6. Change the draft with `update_pulse` at the latest returned `version` (`expected_version`). It returns the same `readiness` for the draft as saved, so targeting added here is checked too; handle a gap as in step 5. Show the warnings, and the draft: `preview_pulse` for a pulse never published; for a published pulse, the saved draft from `get_pulse`, because `preview_pulse` shows its published revision, not the edits. Repeat until they approve. Set `targeting_rulesets` before publishing.
 7. Publish only on explicit approval: `publish_pulse` with the exact `expected_version` and an `intent` (`activate`, `schedule`, `inactive`, `preserve`, `pause`). Publishing changed content of a published pulse returns a new pulse id; use it from then on.
-8. `get_pulse` to verify. `shows` says whether its top level is the published pulse or, for a pulse never published, the saved draft. `draft.has_unpublished_changes` (top level in `list_pulses`) shows saved edits not yet published; `reset_pulse_draft` discards them. A pulse never published has nothing to reset to: `delete_pulse` discards it.
+8. `get_pulse` to verify. `shows` says whether its top level is the published pulse or, for a pulse never published, the saved draft. `draft.has_unpublished_changes` (top level in `list_pulses`) shows saved edits not yet published; `reset_pulse_draft` discards them. A pulse never published has nothing to reset to: `delete_pulse` archives it. An archived pulse is not served and cannot be edited; `list_pulses` with status `archived` shows it.
 
 When talking to the user, refer to a pulse as **name (`id`)**. Do not lead with
 the id.
