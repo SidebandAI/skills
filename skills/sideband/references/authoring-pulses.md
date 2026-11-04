@@ -54,6 +54,15 @@ for none). Each action needs `label` and `action.type`:
 `dismiss` or `app_rating`. `app_rating` opens the store rating prompt. At
 least one action on a custom completion.
 
+## Review
+
+`validate_pulse` reviews the saved working draft without changing or publishing it.
+It requires the existing `mcp_il_tools` and `intelligence_layer` access gates.
+The channel's `pulse_editor_v2` flag selects the new review workflow when enabled
+and the legacy review when disabled or absent. Local/dev enables the new workflow
+automatically. Both return the same checklist result format. This flag does not
+block draft creation, updates, or publication through MCP.
+
 ## Questions
 
 ### Entry
@@ -73,6 +82,21 @@ The first thing the respondent sees is **one of**:
 
 Never a `multiple_choice` or `free_text` root. If a FAB config exists, ask
 sheet vs FAB vs snackbar; all are valid.
+
+MCP authoring accepts `appearance: "toolbar"` and `entry_settings.kind: "toolbar"`.
+Use `appearance` to select toolbar; an explicit appearance sets the entry kind.
+Toolbar does not require a `fab_config_id`. Returned authoring arguments preserve
+the toolbar appearance. Saving or publishing it does not enable SDK delivery.
+
+`debug_evaluate` and transient preview payloads can include
+`pending_pulse.sentimentPresentation: "toolbar"` when the stored
+`entry_settings.kind` is `toolbar`. This field takes priority over the root
+question's `isSnackBar` flag; without either, SDKs retain FAB/sheet behavior.
+Existing FAB and snackbar payloads omit the new field. Debug evaluation does
+not check SDK compatibility. Toolbar delivery is disabled for all SDK versions
+until a release that consumes this field is confirmed; `1.4.1-rc.2` is not
+treated as supporting it. The console appearance selector does not yet offer
+toolbar. The `/v1/sync` contract change requires human review before shipping.
 
 ### Copy
 
@@ -145,6 +169,8 @@ short, max 120). Omitting either fails publication. Do not invent an id.
 on the `yes_no` root.
 
 ## Update
+
+Draft status reports `get_pulse.shows: draft` and `published: false` (`draft.published` in `get_pulse`).
 
 `update_pulse` changes the saved draft, never the delivered pulse. Pass
 `expected_version` from the latest `get_pulse` or write result; a stale version
