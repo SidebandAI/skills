@@ -13,8 +13,23 @@ to judge whether the questions answer the goal. Optional to save; if they
 decline, omit it. If saving, use the user's goal, not a restatement of the
 first question.
 
+### Test pulse and first real pulse
+
+A new integration needs two different pulses. Say which one you are drafting.
+
+- **Test pulse:** a moment a tester can trigger by hand, with a simple question.
+  It proves that the integration delivers a pulse and records an answer. It
+  is not a model for later pulses. Copying it to Production is the user's
+  choice, not the default next step.
+- **First real pulse:** starts from what the team wants to learn (a decision,
+  a gap in what they know about their users, something they are about to
+  build). Ask them first. If they have no question yet, propose one or two:
+  for each, the moment, who to target and why those users can answer, and what
+  the team would do with each likely answer. Draft only what they choose.
+
 `create_pulse_draft` saves a draft and needs write access. Only `channel_id` is
-required; it returns `id`, `version`, generated defaults and graph warnings, or
+required; it returns `id`, `version`, generated defaults, graph warnings and
+delivery warnings, or
 `validation_errors` for content that cannot be built yet. Show those. The draft
 delivers nothing until `publish_pulse`. Targeting may be omitted in a draft; it
 is required to publish.
@@ -58,10 +73,13 @@ least one action on a custom completion.
 
 `validate_pulse` reviews the saved working draft without changing or publishing it.
 It requires the existing `mcp_il_tools` and `intelligence_layer` access gates.
+Each `validate_pulse` and `monitor_pulse` call is a model-backed run that counts toward
+hourly budgets for the channel, for the user and for all of Sideband. Over a budget the
+call returns `rate_limited` with `retry_after_seconds` and `limit_scope` (`channel`,
+`user` or `deployment`), and nothing runs.
 The channel's `pulse_editor_v2` flag selects the new review workflow when enabled
-and the legacy review when disabled or absent. Local/dev enables the new workflow
-automatically. Both return the same checklist result format. This flag does not
-block draft creation, updates, or publication through MCP.
+and the legacy review when disabled or absent. Both return the same checklist result
+format. This flag does not block draft creation, updates, or publication through MCP.
 
 ## Questions
 
@@ -83,20 +101,26 @@ The first thing the respondent sees is **one of**:
 Never a `multiple_choice` or `free_text` root. If a FAB config exists, ask
 sheet vs FAB vs snackbar; all are valid.
 
-MCP authoring accepts `appearance: "toolbar"` and `entry_settings.kind: "toolbar"`.
-Use `appearance` to select toolbar; an explicit appearance sets the entry kind.
-Toolbar does not require a `fab_config_id`. Returned authoring arguments preserve
-the toolbar appearance. Saving or publishing it does not enable SDK delivery.
+**Toolbar** (`appearance: "toolbar"`): a full-width bar pinned to the page edge.
+It needs no `fab_config_id`; the server sets `entry_settings.kind: toolbar`.
+- Only the web SDK 1.4.3 and later shows a toolbar pulse. Sideband never sends
+  it to the iOS or Android SDK or to an older web SDK, so those users never see
+  the pulse.
+- The root must be a `yes_no` question. With any other root, the web SDK shows a
+  sheet.
+- With a `yes_no` root, the toolbar shows only that question. The answer
+  completes the pulse, and the web SDK never shows the questions after it. Use
+  one `yes_no` question.
 
-`debug_evaluate` and transient preview payloads can include
-`pending_pulse.sentimentPresentation: "toolbar"` when the stored
-`entry_settings.kind` is `toolbar`. This field takes priority over the root
-question's `isSnackBar` flag; without either, SDKs retain FAB/sheet behavior.
-Existing FAB and snackbar payloads omit the new field. Debug evaluation does
-not check SDK compatibility. Toolbar delivery is disabled for all SDK versions
-until a release that consumes this field is confirmed; `1.4.1-rc.2` is not
-treated as supporting it. The console appearance selector does not yet offer
-toolbar. The `/v1/sync` contract change requires human review before shipping.
+The pulse tools return a `delivery_warnings` entry for each of these points
+(`toolbar_web_only`, `toolbar_first_question_not_yes_no`,
+`toolbar_follow_ups_not_shown`), beside the routing `warnings`. Other codes can
+occur; each entry's `message` says what it means. They never block publish;
+tell the user what each one means before publishing.
+
+`debug_evaluate` and preview payloads include
+`pending_pulse.sentimentPresentation: "toolbar"` for a toolbar pulse.
+`debug_evaluate` does not check the SDK platform or version.
 
 ### Copy
 
@@ -173,8 +197,10 @@ on the `yes_no` root.
 Draft status reports `get_pulse.shows: draft` and `published: false` (`draft.published` in `get_pulse`).
 
 `update_pulse` changes the saved draft, never the delivered pulse. Pass
-`expected_version` from the latest `get_pulse` or write result; a stale version
-returns `conflict`. Omitted fields stay as they are. `questions`, `completions`
+`expected_version` from `get_pulse.data.draft.version`, or `data.version` from
+the latest draft write result. `schema_version` identifies the pulse payload
+format, not an edit revision. A stale draft version returns `conflict`.
+Omitted fields stay as they are. `questions`, `completions`
 and `translations` each replace the whole array: send every item, not only the
 edited one.
 
@@ -202,12 +228,17 @@ seen, and the events a user sent.
 A ruleset:
 
 - `trigger_events` — at least one **user-initiated** event. A direct user
-  action (opened create, saved, tapped). Not `system_*`, and not app lifecycle
-  or other events with no direct user action, and not an event whose context
+  action (opened create, saved, tapped), or an at-rest arrival that the reviewed
+  map defines with its de-duplication rule (a calm moment, not mid-task). Not
+  `system_*`, and not app lifecycle or other events with no direct user action,
+  and not an event whose context
   row's `notes` start with `history only: not a pulse trigger`. Check names with
   `list_observed_events` first (`system_*` are in `meta.system_names` unless
   `include_system: true` — do not use them as triggers). A trigger the app
   never sends never fires (no error). Counts are exact through `meta.coverage_to`.
+  A name with `in_context: false` has no row in the stored context: describe it
+  from the code and store the row before you draft on it, or the draft's
+  `readiness` reports a gap.
 - `trigger_metadata_filters` — optional `{key, operator, value}` on the
   **activating event** (all AND-ed). Not history.
 - `conditions` — optional, evaluated in order. Each needs `kind`:
@@ -277,6 +308,11 @@ No "any of these attributes" primitive — separate rulesets.
   show again. On create, omit = shown at most once, ever; omit `max_responses` =
   no cap. On `update_pulse`, omit it to keep the current value; send `null`
   only when intentionally clearing it.
+- **Delivery language**: a pulse shows only when the language that the SDK
+  sends matches the pulse's language or one of its published translations. A
+  person with no match gets no pulse, also when the pulse has no language rule.
+  By default the SDK sends the device's language; the SDK README for the
+  platform says whether and how the app can send a different one.
 
 Test in the Development channel, with a build that uses its key. A different
 account in the Production channel does not keep the test out of it. Turn off
@@ -286,10 +322,62 @@ cooldown only in the Development channel.
 report the current value, make sure the channel is not serving real users, say
 how to put it back. Never leave cooldown disabled on a channel serving real users.
 
+### Test a new pulse
+
+A published pulse is not done until someone sees it in a build. In the
+Development channel, after the user says publish:
+
+1. Use a build with the Development channel's key and a user who has not seen
+   this pulse (a pulse shows at most once per user unless its redisplay allows more).
+   Two limits block a user who saw a pulse: the channel cooldown after any
+   pulse, and this pulse's redisplay. A lower channel cooldown alone does not
+   show a show-once pulse again to the same user. For each repeat test, prefer
+   a fresh eligible user.
+2. Do something that should not show it (another action, or a user outside its
+   targeting): nothing appears.
+3. Do the trigger action: the pulse appears after the app's next sync, usually
+   a few seconds later, because the server sets a minimum wait between syncs.
+   Note when the trigger happened and when the pulse appeared, and report that
+   delay. Answer it with a known answer. When the app's language and the
+   device's language can differ, also test the team's language choice with a
+   second eligible user who has not seen this pulse, on a device set to a
+   language that does not match. Record the language that the build sends in
+   each test. If it sends the app's language, the pulse shows. If it sends the
+   device's language and the pulse has no matching translation, no pulse shows,
+   and that is the expected result. When the trigger can fire with a host dialog
+   open, test with the dialog open, with mouse and with keyboard. Report each
+   input mode you did not test as not tested.
+4. Read the answer back with `list_responses`, and the delivery with
+   `get_pulse_delivery`. Do the trigger action again with the same user: nothing
+   appears.
+5. Restore any test setting you changed (cooldown), or pause the pulse, as
+   agreed with the user.
+
+If you cannot run the app, give the user these steps and report the pulse as
+not tested until the answer is read back.
+
+For the release, create the tested real pulse again as a draft in the
+Production channel (a test pulse only if the user chooses): same questions,
+targeting and learning objective, with that channel's FAB configuration. Do not
+copy test settings. Show the draft, and publish it only when the user says
+publish.
+
 ## Results
 
 - `get_pulse_metrics` — completion/response counts
+- `get_pulse_delivery` — delivery health (presentations by the pulse's entry kind,
+  FAB drawn vs opened for a FAB pulse, selections never presented, `not_now` vs `never` dismissals) and serve timing (gap from app
+  foreground, tenure, gap from each condition event, which trigger fired, seconds
+  to answer). Counts and ratios only; read them against what the pulse was meant
+  to ask about before calling a moment wrong. A report is cached for up to five
+  minutes, and `computed_at` gives its age: activity after the report was built
+  can be missing from it until the cache expires. Check answers with
+  `list_responses`
 - `list_responses` — filter by sentiment, completion, time
+- `monitor_pulse` — results with benchmarks, delivery and timing, and a read of the
+  newest free-text answers against the learning objective (objective progress,
+  takeaways, themes by response id, hero responses). `qualitative_error` names why a
+  read is missing; the measurements stand on their own
 - `list_events` / `list_observed_events` — names, exact counts, per-platform
   breakdown, metadata keys, first/last seen. `system_*` names are in
   `meta.system_names` unless `include_system: true`. `event_names` reads

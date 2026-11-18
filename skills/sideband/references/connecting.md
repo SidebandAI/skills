@@ -10,6 +10,10 @@ client cannot do OAuth.
 Do not send the user to other Sideband pages for setup. This file plus the URL
 from Settings is enough.
 
+Most clients load MCP servers only when a session starts. After the server is
+added, if Sideband or its tools are not listed, restart the session (or open a
+new chat), then complete sign-in.
+
 ## Claude Desktop and claude.ai
 
 1. Ask for the MCP server URL from **Settings → MCP setup**.
@@ -32,7 +36,10 @@ MCP URL from the console, not localhost.
 claude mcp add --transport http --scope user sideband "<MCP_SERVER_URL>"
 ```
 
-Then connect and complete sign-in in the browser.
+The client's permission settings can stop you from changing its own
+configuration. If they do, give the user this command to run. Then
+restart the session (`claude --continue` keeps the conversation), run
+`/mcp` → sideband → Authenticate, and complete sign-in in the browser.
 
 ## Codex
 
@@ -103,7 +110,16 @@ Keep the token in an environment variable; don't commit it.
 
 Call `list_products` to verify authentication and discover products with accessible channels.
 An empty product list can be valid: check `standalone_channels` when present in the same result.
+A new account has no product. Tell the user that setup needs a product (its Production and
+Development channels) and an API key for the Development channel. Offer to create them, or
+let the user create them in the console or ask a teammate to invite them to an existing product.
 Follow `next_cursor` for more products or standalone channels.
+
+For `list_products`, `list_channels`, `list_pulses`, `list_fab_configs`, and
+`list_pulse_translations`, pass the previous response's `next_cursor` unchanged.
+Omit `cursor` to start at the first page; an empty string counts as omitted.
+A malformed cursor returns `invalid_cursor` with a `cursor` field error and
+recovery instructions. It does not silently restart pagination.
 
 ## Troubleshooting
 
